@@ -1,0 +1,22 @@
+services:
+
+  leader:
+    image: postgres:17.5
+    restart: always
+    shm_size: 128mb
+    environment:
+      POSTGRES_PASSWORD: pass
+      POSTGRES_USER: user
+      POSTGRES_DB: multiple_db
+    ports:
+      - "5432:5432"
+  replica:
+    image: postgres:17.5
+    restart: always
+    shm_size: 128mb
+    environment:
+      POSTGRES_PASSWORD: pass
+      POSTGRES_USER: user
+      POSTGRES_DB: multiple_db
+    ports:
+      - "5433:5433"
