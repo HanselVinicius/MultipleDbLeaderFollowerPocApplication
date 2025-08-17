@@ -1,22 +1,54 @@
-services:
+version: '3.8'
 
-  leader:
-    image: postgres:17.5
-    restart: always
-    shm_size: 128mb
-    environment:
-      POSTGRES_PASSWORD: pass
-      POSTGRES_USER: user
-      POSTGRES_DB: multiple_db
+x-postgres-common: &postgres-common
+  image: postgres:17.5
+  user: postgres
+  restart: always
+  healthcheck:
+    test: ['CMD-SHELL', 'pg_isready -U user -d multiple_db']
+    interval: 10s
+    timeout: 5s
+    retries: 5
+
+services:
+  postgres_primary:
+    <<: *postgres-common
+    container_name: leader
     ports:
       - "5432:5432"
-  replica:
-    image: postgres:17.5
-    restart: always
-    shm_size: 128mb
     environment:
-      POSTGRES_PASSWORD: pass
       POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
       POSTGRES_DB: multiple_db
+      POSTGRES_HOST_AUTH_METHOD: "scram-sha-256\nhost replication all 0.0.0.0/0 scram-sha-256"
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    command: >
+      postgres 
+      -c wal_level=replica 
+      -c hot_standby=on 
+      -c max_wal_senders=10 
+      -c max_replication_slots=10 
+      -c hot_standby_feedback=on
+    volumes:
+      - ./setup/00_init.sql:/docker-entrypoint-initdb.d/00_init.sql
+
+  postgres_replica:
+    <<: *postgres-common
+    container_name: replica
     ports:
-      - "5433:5433"
+      - "5433:5432"
+    environment:
+      PGUSER: replicator
+      PGPASSWORD: replicator_password
+    command: >
+      bash -c "
+        until pg_basebackup -h postgres_primary -p 5432 -D /var/lib/postgresql/data -U replicator -R --slot=replication_slot; do
+          echo 'Waiting for primary to connect...'
+          sleep 2
+        done
+        echo 'Base backup done, starting replica...'
+        chmod 0700 /var/lib/postgresql/data
+        exec postgres -c hot_standby=on
+      "
+    depends_on:
+      - postgres_primary
